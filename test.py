@@ -7,44 +7,35 @@ import torchvision.transforms.functional as f
 from torchmetrics.functional.image import peak_signal_noise_ratio as psnr
 from torchmetrics.functional.image import structural_similarity_index_measure as ssim
 import utils
+import yaml
 
-ds_lrx2 = ImageNet(
-    input_folder_path="./data/Set14/LRbicx2",
-    target_folder_path="./data/Set14/GTmod12",
+with open("./options/upsamplex4.yml", "r") as file:
+    config_yml = yaml.safe_load(file)
+
+model = torch.load(".\\models\\ESPCNx4").to("cpu")
+model.eval()
+
+imageNet_dataset = ImageNet(
+    input_folder_path=config_yml["datasets"]["test1"]["dataroot_lq"],
+    target_folder_path=config_yml["datasets"]["test1"]["dataroot_gt"],
 )
-
-ds_lrx4 = ImageNet(
-    input_folder_path="./data/Set14/LRbicx4",
-    target_folder_path="./data/Set14/GTmod12",
-)
-
-upsamplex2_lower = torch.load("./models/ESPCNx2_lower").to("cpu")
-upsamplex2_upper = torch.load("./models/ESPCNx2_upper").to("cpu")
-upsamplex4 = torch.load("./models/ESPCNx4").to("cpu")
-
-upsamplex2_lower.eval()
-upsamplex2_upper.eval()
-upsamplex4.eval()
-
 
 test_dl = DataLoader(
-    dataset=ds_lrx2,
+    dataset=imageNet_dataset,
     batch_size=1,
     shuffle=False,
 )
 
-file_names = [fns.split("/")[-1] for fns in ds_lrx2.input_file_names]
-print(file_names)
-patch_size, stride, scale = 112, 102, 2
+# patch_size - stride = overlap => stride < patch_size; overlap must be even
+patch_size = config_yml["patches"]["patch_size"]
+stride = config_yml["patches"]["stride"]
+scale = config_yml["scale"]
 total_psnr, total_ssim = 0, 0
+file_names = [fns.split("/")[-1] for fns in imageNet_dataset.input_file_names]
 # %%
-# patch_size - stride = overlap | stride < patch_size
 print("File name \t\t PSNR \t   SSIM     target shape")
 for i, (image, target) in enumerate(test_dl):
-    output = utils.p2img_forward(
-        image, target, scale, patch_size, stride, upsamplex2_upper
-    )
-
+    output = utils.p2img_forward(image, target, scale, patch_size, stride, model)
     psnr_value = psnr(output, target).item()
     ssim_value = ssim(output, target).item()
     total_psnr += psnr_value
@@ -58,10 +49,11 @@ print(
 )
 
 # %% Display desired pair output and target
-image, target = ds_lrx2[0]
+image, target = imageNet_dataset[0]
 image = image.unsqueeze(0)
 target = target.unsqueeze(0)
-output = utils.p2img_forward(image, target, scale, patch_size, stride, upsamplex2_upper)
-utils.plot_out_target(output, target)
+output = utils.p2img_forward(image, target, scale, patch_size, stride, model)
+print(torch.min(output), torch.max(output))
+utils.plot_src_out_target(image, output, target)
 
 # %%

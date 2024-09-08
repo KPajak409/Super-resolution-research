@@ -1,0 +1,17 @@
+name: ESPCNx2_lower_ImageNet
+model_path: ./models/ESPCNx2_lower
+scale: 2
+
+patches:
+  patch_size: 56
+  stride: 46
+  
+datasets:
+  test1:
+    name: Set14
+    dataroot_gt: ./data/Set14/GTmod12
+    dataroot_lq: ./data/Set14/LRbicx2
+
+  
+
+  

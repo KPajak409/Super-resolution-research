@@ -1,4 +1,4 @@
-#%%
+# %%
 import os
 import cv2
 
@@ -16,7 +16,7 @@ def central_crop(image, crop_height, crop_width):
     height, width, _ = image.shape
     startx = width // 2 - (crop_width // 2)
     starty = height // 2 - (crop_height // 2)
-    return image[starty:starty + crop_height, startx:startx + crop_width]
+    return image[starty : starty + crop_height, startx : startx + crop_width]
 
 
 def preprocessing_images(img_path, file_names_path, output):
@@ -24,7 +24,7 @@ def preprocessing_images(img_path, file_names_path, output):
     with open(file_names_path) as file:
         for line in file:
             values = line.split(" ")
-            fns.append(f"{img_path}\\{values[0]}.JPEG")    
+            fns.append(f"{img_path}\\{values[0]}.JPEG")
 
     for i in range(len(fns)):
         if i % 10000 == 0:
@@ -32,16 +32,16 @@ def preprocessing_images(img_path, file_names_path, output):
         # Load (as BGR)
         img = cv2.imread(fns[i])
         img = resize_image(img)
-        img = central_crop(img, 224, 224)
-        assert img.shape[0] == 224 and img.shape[1] == 224
+        img = central_crop(img, 240, 240)
+        assert img.shape[0] == 240 and img.shape[1] == 240
         # Save (as RGB)
         # If it is in NP array, please revert last dim like [:,:,::-1]
         name, ext = os.path.splitext(os.path.basename(fns[i]))
-        file_path = os.path.join(output, name + '.JPEG')
+        file_path = os.path.join(output, name + ".JPEG")
         cv2.imwrite(file_path, img)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # parser = argparse.ArgumentParser()
     # parser.add_argument('--input', '-i', required=True, type=str, help="ImageNet image path")
     # parser.add_argument('--output', '-o', type=str, default="", help="Output image path")
@@ -53,9 +53,8 @@ if __name__ == '__main__':
     # preprocessing_images(args.input, args.output)
 
     file_names = preprocessing_images(
-        ".\\Data\\val",
-        ".\\ImageSets\\val.txt", 
-        ".\\data\\preprocessed_data\\val\\HR")
-    
-    
+        ".\\data\\orginal\\test", ".\\data\\ImageSets\\test.txt", ".\\data\\test\\HR"
+    )
+
+
 # %%

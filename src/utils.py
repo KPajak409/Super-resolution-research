@@ -7,25 +7,26 @@ from torchmetrics.functional.image import peak_signal_noise_ratio as psnr
 from torchmetrics.functional.image import structural_similarity_index_measure as ssim
 
 
-def patchify(image, patch_size, stride, overlap) -> torch.Tensor:
+def patchify(image, patch_size, stride, channels) -> torch.Tensor:
     """turn tensor of shape [1, kernels, height, width]
     to patches of shape [patches, kernels, height, width]"""
+    overlap = patch_size - stride
     assert overlap % 2 == 0
 
-    kc, kh, kw = 3, patch_size, patch_size  # kernel size
-    dc, dh, dw = 3, stride, stride  # stride
+    kc, kh, kw = channels, patch_size, patch_size  # kernel size
+    dc, dh, dw = channels, stride, stride  # stride
     # Pad to multiples of kernel size
     pw, ph = 0, 0
 
     for i in range(1, kh, 1):
-        if (image.shape[2] + i) % kh == 0:
+        if (image.shape[2] + i) % dh == 0:
             ph = i
-        if (image.shape[3] + i) % kw == 0:
+        if (image.shape[3] + i) % dw == 0:
             pw = i
 
     image = torch.nn.functional.pad(
         image,
-        (0 + overlap // 2, pw + overlap // 2, 0 + overlap // 2, ph + overlap // 2),
+        (overlap // 2, pw + overlap // 2, overlap // 2, ph + overlap // 2),
     )
     patches = image.unfold(1, kc, dc).unfold(2, kh, dh).unfold(3, kw, dw)
     unfold_shape = patches.size()
@@ -53,10 +54,12 @@ def unpatchify(patches, unfold_shape, target_shape) -> torch.Tensor:
     return p
 
 
-def p2img_forward(image, target, scale, patch_size, stride, model):
+def p2img_forward(image, target, scale, patch_size, stride, channels, model):
     # turn image into patches
     overlap = patch_size - stride
-    p_lr, un_lr = patchify(image, patch_size=patch_size, stride=stride, overlap=overlap)
+    p_lr, un_lr = patchify(
+        image, patch_size=patch_size, stride=stride, channels=channels
+    )
 
     # modify unfold dimensions to fit with upscaled image
     un_hr = [
@@ -71,19 +74,52 @@ def p2img_forward(image, target, scale, patch_size, stride, model):
     output = output[
         :,
         :,
-        (overlap // 2) * scale : -(overlap // 2) * scale,
-        (overlap // 2) * scale : -(overlap // 2) * scale,
+        (overlap // 2) * scale : -((overlap // 2) * scale),
+        (overlap // 2) * scale : -((overlap // 2) * scale),
     ]
 
     # convert patches to single image with the same size as orginal
     return unpatchify(output, un_hr, target.shape)
 
 
-def plot_patches(tensor, n_patches):
-    fig = plt.figure(figsize=(8, 8))
-    grid = ImageGrid(
-        fig, 111, nrows_ncols=(int(n_patches**0.5), int(n_patches**0.5)), axes_pad=0.1
+def forward_ycbcr(image, target, patch_size, stride, scale, model):
+    # prepare channels for processing
+    y = image[..., 0, :, :].unsqueeze(0)
+    # target_y = target[..., 0, :, :].unsqueeze(0)
+    cbcr = image[..., 1:, :, :]
+
+    output = p2img_forward(y, target, scale, patch_size, stride, y.shape[1], model)
+    cbcr_hr = torch.nn.functional.interpolate(
+        cbcr, (target.shape[2], target.shape[3]), mode="bicubic"
     )
+    output = torch.concat((output, cbcr_hr), 1)
+
+    return output
+
+
+def ycbcr_to_rgb(image):
+    image *= 255.0
+
+    y = image[..., 0, :, :]
+    cb = image[..., 1, :, :]
+    cr = image[..., 2, :, :]
+
+    # r = (y * 1.16438355 + cb * 1.16438355 + cr * 1.16438355) - 222.921
+    # g = (y + cb * (-0.3917616) + cr * 2.01723105) + 135.576
+    # b = (y * 1.59602715 + cb * (-0.81296805) + cr) - 276.836
+
+    r = (y * 1.16438355 + cb * 1.16438355 + cr * 1.16438355) - 222.921
+    g = (y + cb * (-0.3917616) + cr * 2.01723105) + 135.576
+    b = (y * 1.59602715 + cb * (-0.81296805) + cr) - 276.836
+
+    image = torch.stack((r, g, b), 2)
+    image /= 255.0
+    return image
+
+
+def plot_patches(tensor, h_patches, w_patches):
+    fig = plt.figure(figsize=(8, 8))
+    grid = ImageGrid(fig, 111, nrows_ncols=(h_patches, w_patches), axes_pad=0.1)
 
     for i, ax in enumerate(grid):
         patch = tensor[i].permute(1, 2, 0).numpy()
@@ -114,28 +150,41 @@ def plot_out_target(output, target):
 
 
 def plot_src_out_target(src, output, target):
+    bic = torch.nn.functional.interpolate(
+        src, (target.shape[2], target.shape[3]), mode="bicubic"
+    )
+
     src_permute = torch.permute(src, (0, 2, 3, 1))
+    bic_permute = torch.permute(src, (0, 2, 3, 1))
     output_permute = torch.permute(output, (0, 2, 3, 1))
     target_permute = torch.permute(target, (0, 2, 3, 1))
 
-    psnr_value = round(psnr(output, target).item(), 3)
-    ssim_value = round(ssim(output, target).item(), 3)
+    out_psnr = round(psnr(output, target).item(), 3)
+    out_ssim = round(ssim(output, target).item(), 3)
+    bic_psnr = round(psnr(bic, target).item(), 3)
+    bic_ssim = round(ssim(bic, target).item(), 3)
     # pair = torch.hstack((output_permute[0], target_permute[0]))
     plt.figure(figsize=(12, 6))
 
-    plt.subplot(1, 3, 1)
+    plt.subplot(1, 4, 1)
     plt.imshow(src_permute[0])
     plt.axis("off")
     plt.title("LR", fontsize=9)
 
-    plt.subplot(1, 3, 2)
+    plt.subplot(1, 4, 2)
+    plt.imshow(bic_permute[0])
+    plt.axis("off")
+    plt.title(f"Bicubic Psnr: {bic_psnr},\nSSIM: {bic_ssim}", fontsize=9)
+
+    plt.subplot(1, 4, 3)
     plt.imshow(output_permute[0])
     plt.axis("off")
-    plt.title(f"Psnr: {psnr_value}, SSIM: {ssim_value}", fontsize=9)
+    plt.title(f"Predict Psnr: {out_psnr},\nSSIM: {out_ssim}", fontsize=9)
 
-    plt.subplot(1, 3, 3)
+    plt.subplot(1, 4, 4)
     plt.imshow(target_permute[0])
     plt.axis("off")
     plt.title("Ground Truth", fontsize=9)
+
     plt.subplots_adjust(wspace=0, hspace=0)
     plt.show()

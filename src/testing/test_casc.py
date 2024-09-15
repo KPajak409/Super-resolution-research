@@ -1,12 +1,12 @@
 # %%
 import torch
 import matplotlib.pyplot as plt
-from ImageNet_dataset import ImageNet
+from src.datasets.ImageNet_dataset import ImageNet
 from torch.utils.data import DataLoader
 import torchvision.transforms.functional as f
 from torchmetrics.functional.image import peak_signal_noise_ratio as psnr
 from torchmetrics.functional.image import structural_similarity_index_measure as ssim
-import utils
+import src.utils as utils
 import yaml
 
 with open("./options/upsamplex2_upper.yml", "r") as file:

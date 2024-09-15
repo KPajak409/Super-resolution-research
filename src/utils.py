@@ -5,6 +5,7 @@ from mpl_toolkits.axes_grid1 import ImageGrid
 import torchvision.transforms.functional as f
 from torchmetrics.functional.image import peak_signal_noise_ratio as psnr
 from torchmetrics.functional.image import structural_similarity_index_measure as ssim
+import numpy as np
 
 
 def patchify(image, patch_size, stride, channels) -> torch.Tensor:
@@ -82,39 +83,60 @@ def p2img_forward(image, target, scale, patch_size, stride, channels, model):
     return unpatchify(output, un_hr, target.shape)
 
 
-def forward_ycbcr(image, target, patch_size, stride, scale, model):
-    # prepare channels for processing
-    y = image[..., 0, :, :].unsqueeze(0)
-    # target_y = target[..., 0, :, :].unsqueeze(0)
-    cbcr = image[..., 1:, :, :]
+def convert_ycbcr_to_rgb(img, dim_order="hwc"):
+    if dim_order == "hwc":
+        r = 298.082 * img[..., 0] / 256.0 + 408.583 * img[..., 2] / 256.0 - 222.921
+        g = (
+            298.082 * img[..., 0] / 256.0
+            - 100.291 * img[..., 1] / 256.0
+            - 208.120 * img[..., 2] / 256.0
+            + 135.576
+        )
+        b = 298.082 * img[..., 0] / 256.0 + 516.412 * img[..., 1] / 256.0 - 276.836
+    else:
+        r = 298.082 * img[0] / 256.0 + 408.583 * img[2] / 256.0 - 222.921
+        g = (
+            298.082 * img[0] / 256.0
+            - 100.291 * img[1] / 256.0
+            - 208.120 * img[2] / 256.0
+            + 135.576
+        )
+        b = 298.082 * img[0] / 256.0 + 516.412 * img[1] / 256.0 - 276.836
+    return np.array([r, g, b]).transpose([1, 2, 0])
 
-    output = p2img_forward(y, target, scale, patch_size, stride, y.shape[1], model)
-    cbcr_hr = torch.nn.functional.interpolate(
-        cbcr, (target.shape[2], target.shape[3]), mode="bicubic"
-    )
-    output = torch.concat((output, cbcr_hr), 1)
 
-    return output
+def convert_rgb_to_ycbcr(img, dim_order="hwc"):
+    if dim_order == "hwc":
+        y = (
+            16.0
+            + (65.738 * img[..., 0] + 129.057 * img[..., 1] + 25.064 * img[..., 2])
+            / 256.0
+        )
+        cb = (
+            128.0
+            + (-37.945 * img[..., 0] - 74.494 * img[..., 1] + 112.439 * img[..., 2])
+            / 256.0
+        )
+        cr = (
+            128.0
+            + (112.439 * img[..., 0] - 94.154 * img[..., 1] - 18.285 * img[..., 2])
+            / 256.0
+        )
+    else:
+        y = 16.0 + (65.738 * img[0] + 129.057 * img[1] + 25.064 * img[2]) / 256.0
+        cb = 128.0 + (-37.945 * img[0] - 74.494 * img[1] + 112.439 * img[2]) / 256.0
+        cr = 128.0 + (112.439 * img[0] - 94.154 * img[1] - 18.285 * img[2]) / 256.0
+    return np.array([y, cb, cr]).transpose([1, 2, 0])
 
 
-def ycbcr_to_rgb(image):
-    image *= 255.0
-
-    y = image[..., 0, :, :]
-    cb = image[..., 1, :, :]
-    cr = image[..., 2, :, :]
-
-    # r = (y * 1.16438355 + cb * 1.16438355 + cr * 1.16438355) - 222.921
-    # g = (y + cb * (-0.3917616) + cr * 2.01723105) + 135.576
-    # b = (y * 1.59602715 + cb * (-0.81296805) + cr) - 276.836
-
-    r = (y * 1.16438355 + cb * 1.16438355 + cr * 1.16438355) - 222.921
-    g = (y + cb * (-0.3917616) + cr * 2.01723105) + 135.576
-    b = (y * 1.59602715 + cb * (-0.81296805) + cr) - 276.836
-
-    image = torch.stack((r, g, b), 2)
-    image /= 255.0
-    return image
+def preprocess(img, device):
+    img = np.array(img).astype(np.float32)
+    ycbcr = convert_rgb_to_ycbcr(img)
+    x = ycbcr[..., 0]
+    x /= 255.0
+    x = torch.from_numpy(x).to(device)
+    x = x.unsqueeze(0).unsqueeze(0)
+    return x, ycbcr
 
 
 def plot_patches(tensor, h_patches, w_patches):
@@ -185,6 +207,33 @@ def plot_src_out_target(src, output, target):
     plt.imshow(target_permute[0])
     plt.axis("off")
     plt.title("Ground Truth", fontsize=9)
+
+    plt.subplots_adjust(wspace=0, hspace=0)
+    plt.show()
+
+
+def plot_lr_bic_out_hr_pil(src, bicubic, output, target, titles):
+    plt.figure(figsize=(12, 6))
+
+    plt.subplot(1, 4, 1)
+    plt.imshow(src)
+    plt.axis("off")
+    plt.title(titles[0], fontsize=9)
+
+    plt.subplot(1, 4, 2)
+    plt.imshow(bicubic)
+    plt.axis("off")
+    plt.title(titles[1], fontsize=9)
+
+    plt.subplot(1, 4, 3)
+    plt.imshow(output)
+    plt.axis("off")
+    plt.title(titles[2], fontsize=9)
+
+    plt.subplot(1, 4, 4)
+    plt.imshow(target)
+    plt.axis("off")
+    plt.title(titles[3], fontsize=9)
 
     plt.subplots_adjust(wspace=0, hspace=0)
     plt.show()

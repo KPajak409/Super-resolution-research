@@ -6,7 +6,7 @@ __pycache__/
 # Custom
 data/
 wandb/
-models/
+trained_models/
 
 # C extensions
 *.so

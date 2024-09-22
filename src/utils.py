@@ -8,6 +8,21 @@ from torchmetrics.functional.image import structural_similarity_index_measure as
 import numpy as np
 
 
+def calc_patch_size(func):
+    def wrapper(args):
+        if args.scale == 2:
+            args.patch_size = 10
+        elif args.scale == 3:
+            args.patch_size = 7
+        elif args.scale == 4:
+            args.patch_size = 6
+        else:
+            raise Exception("Scale Error", args.scale)
+        return func(args)
+
+    return wrapper
+
+
 def patchify(image, patch_size, stride, channels) -> torch.Tensor:
     """turn tensor of shape [1, kernels, height, width]
     to patches of shape [patches, kernels, height, width]"""
@@ -81,6 +96,17 @@ def p2img_forward(image, target, scale, patch_size, stride, channels, model):
 
     # convert patches to single image with the same size as orginal
     return unpatchify(output, un_hr, target.shape)
+
+
+def convert_rgb_to_y(img, dim_order="hwc"):
+    if dim_order == "hwc":
+        return (
+            16.0
+            + (65.738 * img[..., 0] + 129.057 * img[..., 1] + 25.064 * img[..., 2])
+            / 256.0
+        )
+    else:
+        return 16.0 + (65.738 * img[0] + 129.057 * img[1] + 25.064 * img[2]) / 256.0
 
 
 def convert_ycbcr_to_rgb(img, dim_order="hwc"):
@@ -237,3 +263,20 @@ def plot_lr_bic_out_hr_pil(src, bicubic, output, target, titles):
 
     plt.subplots_adjust(wspace=0, hspace=0)
     plt.show()
+
+
+class AverageMeter(object):
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count

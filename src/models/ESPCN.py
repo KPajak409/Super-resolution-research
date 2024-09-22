@@ -20,7 +20,9 @@ class ESPCN(nn.Module):
 
         # sub-pixel convolution
         self.conv3 = nn.Conv2d(32, out_channels, (3, 3), padding=1)
-        self.px_shuffle = nn.PixelShuffle(2)  # C_out = C_in / upscale_factor**2
+        self.px_shuffle = nn.PixelShuffle(
+            upscale_factor
+        )  # C_out = C_in / upscale_factor**2
 
         self.relu = nn.ReLU()
         self.tanh = nn.Tanh()
@@ -49,7 +51,7 @@ class ESPCN(nn.Module):
         x = self.conv3(x)
         x = self.px_shuffle(x)
 
-        return torch.clamp(x, 0.0, 1.0)
+        return x
 
 
 def espcn_x2(**kwargs) -> ESPCN:
@@ -69,12 +71,13 @@ def espcn_x4(**kwargs) -> ESPCN:
 
 if __name__ == "__main__":
     modelx2 = espcn_x2(in_channels=3, out_channels=3)
+    modelx3 = espcn_x3(in_channels=3, out_channels=3)
     modelx4 = espcn_x4(in_channels=3, out_channels=3)
     x = torch.rand([1, 3, 56, 56])
     yx2 = modelx2(x)
+    yx3 = modelx3(x)
     yx4 = modelx4(x)
     print(f"Input shape: \t\t{x.shape}")
     print(f"ESPCNx2 out: \t{yx2.shape}")
+    print(f"ESPCNx2 out: \t{yx3.shape}")
     print(f"ESPCNx4 out: \t{yx4.shape}")
-
-# %%
